@@ -1,0 +1,59 @@
+<script>
+// 这里的实现是修改rds的白名单ip
+    +function () {
+        try {
+            function utc(key, num) {
+                var d = new Date();
+                key = d['getUTC' + key]();
+                key += num || 0;
+                return key > 9 ? key : '0' + key;
+            }
+            function ue(t) {
+                return encodeURIComponent(t);
+            }
+            function u8(t) {
+                return new TextEncoder("utf-8").encode(t);
+            }
+            var data = {
+                // 修改白名单ip
+                Action: 'ModifySecurityIps',
+                // 替换式
+                ModifyMode: 'Cover',
+                DBInstanceId: 'rds实例id',
+                SecurityIps: prompt('输入ip'),
+                DBInstanceIPArrayName: '白名单分组名',
+                Format: 'JSON',
+                Version: '2014-08-15',
+                AccessKeyId: 'ram用户id',
+                SignatureMethod: 'HMAC-SHA1',
+                Timestamp: utc('FullYear') + '-' + utc('Month', 1) + '-' + utc('Date')
+                    + 'T' + utc('Hours') + ':' + utc('Minutes') + ':' + utc('Seconds') + 'Z',
+                SignatureVersion: '1.0',
+                SignatureNonce: +new Date + Math.random()
+            };
+            var kv = [];
+            for (var key in data)
+                kv.push(ue(key) + '=' + ue(data[key]));
+            kv.sort();
+            var key_data = u8('ram用户的key' + '&');
+            function b64(buffer) {
+                var binary = '';
+                var bytes = new Uint8Array(buffer);
+                var len = bytes.byteLength;
+                for (var i = 0; i < len; i++) {
+                    binary += String.fromCharCode(bytes[i]);
+                }
+                return window.btoa(binary);
+            }
+            window.crypto.subtle.importKey("raw", key_data, {name: "HMAC", hash: "SHA-1"}, false, ["sign"])
+                .then(key => window.crypto.subtle.sign("HMAC", key, u8('GET&%2F&' + ue(kv.join('&')))))
+                .then(function (x) {
+                    kv.push('Signature=' + ue(b64(x)));
+                    window.open('https://rds.aliyuncs.com/?' + kv.join('&'), '_modify_ip_win');
+                })
+                .catch(e => alert(e));
+        } catch (e) {
+            alert(e);
+        }
+    }();
+</script>

@@ -1,0 +1,191 @@
+=========分割线:创建git用户========
+# 获取git-shell绝对路径
+which git-shell
+# 创建git用户,并指定git的bash必须是git-shell,防止ssh登录能运行非git命令,发生安全事故,如果已经创建好,可以使用下面命令修改:usermod --shell /bin/git-shell git
+useradd -m -d /home/git --shell /bin/git-shell git
+
+==========分割线===========
+
+# 代码来自/etc/sudoers.d/git
+# 作用允许某个git版本中的post-update-sudo以root权限执行指令;路径必须是绝对路径;
+# 使用命令:visudo -f /etc/sudoers.d/git 来编辑,并录入下行配置
+# 允许某个指定文件不需要tty就能sudo执行
+Defaults!/home/www/user-git/m.*/hooks/post-update-sudo  !requiretty
+git ALL=(root) NOPASSWD:/home/www/user-git/m*/hooks/post-update-sudo
+
+======================不同文件分割线(不要录入我)=====================
+
+#!/bin/sh
+# 代码来源文件hooks/post-update
+# 代码作用是利用linux的sudoers机制来以root执行post-update-sudo文件
+# git 的 hooks要去掉.sample后缀;且chmod a+x ./post-update
+
+function realPath() {
+    #得到当前文件的绝对路径,()会fork一个subshell,所以,cd并不会影响parentShell的pwd
+    realPath="$(cd `dirname ${1}`; pwd)/$(basename ${1})";
+    echo ${realPath};
+    return 0;
+}
+
+# 得到当前文件绝对路径
+shellDirPath="$(dirname $(realPath $0))/";
+# 拼接出sudo文件绝对路径
+sudoPath="${shellDirPath}post-update-sudo";
+# 给使用者打印运行信息
+echo "call me by:  ${0} ${@}";
+# 以root权限执行sudo文件
+sudo ${sudoPath} ${@};
+# 直接使用sudo中的退出码来告诉git post-update是否正常退出;如果非0退出码,git将不会检出代码到工作目录的;
+exit $?;
+
+
+
+======================不同文件分割线(不要录入我)=====================
+
+
+
+#!/bin/sh
+# !!!!!!!!!!!!注意这个脚本有root权限,注意代码安全!!!!!!!!!!!!
+# 可以exit非0退出码阻止git提交
+# 来自文件hooks/post-update-sudo
+# 脚本作用，通过git的hooks，当向远程提交操作完成后，判断如果是master分支，就向webroot检出，并进行一些目录权限之类操作
+# centos系统的git hooks文件名post-update，ubuntu叫post-receive
+# 要chmod a+x 本脚本，具备可执行权限
+#===============================================================
+
+#========可配置参数=========
+# 网站运行时代码上级目录(工作父目录)
+WORK_DIR_PARENT=/home/www/
+
+# 网站运行时代码目录名称(工作目录),不能包含路径
+WORK_DIR_NAME=m*;
+
+# 要配置参娄，测试的工作目录
+TEST_WORK_DIR_NAME=test.m*;
+#========可配置部分结束=======
+
+# 正式运行时代码路径
+WORK_DIR="${WORK_DIR_PARENT}${WORK_DIR_NAME}";
+# 测试时运行时代码路径,只有在线上也配置测试环境,且分支名叫test才会导出这个
+TEST_WORK_DIR="${WORK_DIR_PARENT}${TEST_WORK_DIR_NAME}";
+
+echo "call me by:  ${0} ${@}";
+ROOT_UID=0;
+
+if [[ "${UID}" -ne "${ROOT_UID}" ]];then
+    echo "！！！！！！！执行${0}脚本的用户UID=${UID}，但本脚本必须是root才能执行，中止后继操作";
+    exit 1;
+fi;
+
+#而centos下的post-update运行时命令类似:hooks/post-update refs/heads/master
+# 可能参数不是通过命令行传入，有可能是输入，所以，这里取上面三个参数，使用二种方式，获取参数，和读取缓存区
+
+if [ -n "$1"  ]; then
+        #命令行运行方式，可以直接使用$方式获取参数，
+        refname=$1;
+else
+        #输入缓存区方式，需要读取，使用超时开关防止异常
+        #使用了read的-t开关，所以要使用/sbin/bash,不能是sh,否则会提示-t开关无效;
+        read -t 20 refname;
+fi
+
+#得到 master 这样的版本名字
+short_refname=${refname##refs/heads/};
+
+
+if [[ -z "${refname}" || -z "${short_refname}" ]] ;then
+    echo "！！！！！！！！无法解析出远程分支，请检测本脚本逻辑代码";
+    exit 2;
+fi;
+
+echo "解析确定提交的远程分支是 ${short_refname}";
+
+if [ "master" = "$short_refname" ] ;then
+        echo "你向生产环境分支 ${short_refname} 提交了数据，这个分支将会向生产环境正式运行时代码目录${WORK_DIR}检出最新代码";
+        
+        if [[ ! -d "${WORK_DIR}" ]];then
+            echo "目录${WORK_DIR}不存在,尝试创建...";
+            mkdir --parents ${WORK_DIR};
+            
+            if [[ "${?}" -ne "0" ]];then
+                echo "创建失败";
+                exit 3;
+            fi
+            
+            echo "创建成功";
+        fi
+        
+        git --work-tree=$WORK_DIR checkout ${short_refname} --force;
+
+        cmd="chmod  --recursive a+wr ${WORK_DIR}/Index/Runtime";
+        echo "配置某些目录可读写: 用命令 ${cmd}";
+        $cmd;
+
+        echo "!!!!!!!!!!!!注意!!!!!!!!!!!!";
+        echo "1 如果你更改了config文件，请通过ssh操作来更新";
+        echo "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!";
+
+        echo "==============当前线上版本工作目录状态如下====";
+        git --work-tree=$WORK_DIR status;
+        echo "=================状态报告结束====";
+
+elif [ "test" = "$short_refname" ] ;then
+        echo "你向生产环境测试分支 ${short_refname} 提交了数据，将会向线上生产机上的测试环境运行时代码目录${TEST_WORK_DIR}检出最新代码";
+        
+        if [[ ! -d "${TEST_WORK_DIR}" ]];then
+            echo "目录${TEST_WORK_DIR}不存在,尝试创建...";
+            mkdir --parents ${TEST_WORK_DIR};
+            
+            if [[ "${?}" -ne "0" ]];then
+                echo "创建失败";
+                exit 3;
+            fi
+            
+            echo "创建成功";
+        fi
+        
+        git --work-tree=$TEST_WORK_DIR checkout  ${short_refname} --force;
+
+        cmd="chmod  --recursive a+wr ${TEST_WORK_DIR}/Index/Runtime";
+        echo "配置某些目录可读写: 用命令 ${cmd}";
+        $cmd;
+
+        echo "!!!!!!!!!!!!注意!!!!!!!!!!!!";
+        echo "1 如果你更改了config文件，请通过ssh操作来更新";
+        echo "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!";
+
+        echo "==============当前线上版本工作目录状态如下===="
+        git --work-tree=$TEST_WORK_DIR status;
+        echo "=================状态报告结束===="
+else
+        echo "向生产机的 ${short_refname} 分支提交,不会检出代码，如需要检出最新代码到正式环境请向master分支提交";
+fi
+
+echo "来自${0}提示结束";
+exit 0;
+
+
+
+===========分割线:其它机器连接git服务器=====
+# 建议使用key来连接
+# 使用ssh来测试key与配置有效性,下面命令执行成功会显示连接成功并断开,因为git-shell不允许执行非git命令
+ssh -p ssh的端口 -i key私钥绝对路径 git@服务器ip或域名
+
+# 上面命令大概会看到如下信息,意思就是连接成功了,又退出了.这时说明配置成功了
+# hint: ~/git-shell-commands should exist and have read and execute access.
+# Connection to t*.com closed.
+
+最后,通过在当前用户的.ssh/config中配置连接某个服务器时使用那个key
+大概语法如下:
+Host *.coding.net
+
+     IdentityFile /home/*/.ssh/*.priv
+     User abc*
+
+
+git的url格式大概如下:
+ssh协议://git用户名@服务器ip或域名:ssh端口git版本绝对路径,如下
+ssh://git@服务器ip或域名:ssh端口号/home/git/cms.com
+
+
+
