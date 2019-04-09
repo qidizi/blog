@@ -1,5 +1,5 @@
 // 本方法更新到 https://github.com/qidizi/memo/edit/master/docs/browser_helper.js
-function browser_helper(user, password) {
+function browser_helper(who, user, password) {
     // 用来加载阿里code插件
     try {
         let sign = 'https://signin.aliyun.com', code = 'https://code.aliyun.com';
@@ -30,7 +30,7 @@ function browser_helper(user, password) {
             null,
             function (t) {
                 try {
-                    +new Function('', t)();
+                    +new Function('who, user, password', t)(who, user, password);
                 } catch (e) {
                     alert('执行如下url代码失败：' + url);
                 }
@@ -48,7 +48,6 @@ function browser_helper(user, password) {
             req.responseType = 'text';
             req.onreadystatechange = function () {
                 if (req.readyState === XMLHttpRequest.DONE) {
-                    //console.log('responseURL', req.responseURL, 'getAllResponseHeaders', req.getAllResponseHeaders());
                     if (200 === req.status) {
                         'function' === typeof ok_cb && ok_cb.call(req, req.response);
                     } else {
