@@ -4,6 +4,12 @@ function realPath() {
     #得到当前文件的绝对路径,()会fork一个subshell,所以,cd并不会影响parentShell的pwd
     realPath=$(cd `dirname "${1}"`; pwd)
     name=$(basename "${1}");
+    
+    
+    if [[ "${name}" = "." || "${name}" = ".." ]];then
+          name="";
+    fi
+ 
     realPath="${realPath}/${name}"
     realPath="${realPath//\/\//\/}";
     realPath="${realPath//\/.\//\/}";
